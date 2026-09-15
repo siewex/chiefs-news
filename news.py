@@ -9,7 +9,9 @@ import feedparser
 import httpx
 import trafilatura
 
-from config import FEEDS
+from urllib.parse import parse_qs, quote_plus, urlparse
+
+from config import FEEDS, SEARCH_FEED
 import storage
 
 log = logging.getLogger(__name__)
@@ -38,6 +40,15 @@ async def _get(client: httpx.AsyncClient, url: str) -> str | None:
         return None
 
 
+def _real_url(url: str) -> str:
+    """Bing отдаёт ссылки через apiclick.aspx?url=... — достаём настоящий адрес."""
+    if "bing.com/news/apiclick" in url:
+        target = parse_qs(urlparse(url).query).get("url")
+        if target:
+            return target[0]
+    return url
+
+
 def _og_image(html: str) -> str | None:
     m = re.search(r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)', html, re.I)
     if not m:
@@ -50,8 +61,6 @@ async def enrich(client: httpx.AsyncClient, a: Article) -> Article:
     html = await _get(client, a.url)
     if not html:
         return a
-    # Google News отдаёт редирект-страницу; финальный url узнаём через follow_redirects выше,
-    # но текст всё равно пробуем извлечь.
     text = trafilatura.extract(html, include_comments=False, include_tables=False) or ""
     a.text = text[:6000]
     a.image_url = _og_image(html)
@@ -71,7 +80,7 @@ async def fetch_new(limit: int) -> list[Article]:
                 continue
             parsed = feedparser.parse(raw)
             for e in parsed.entries[:30]:
-                url = getattr(e, "link", None)
+                url = _real_url(getattr(e, "link", None) or "")
                 title = getattr(e, "title", "").strip()
                 if not url or not title or url in seen_urls or storage.is_seen(url):
                     continue
@@ -92,3 +101,20 @@ async def fetch_new(limit: int) -> list[Article]:
     for a in (found if first_run else picked):
         storage.mark_seen(a.url)
     return list(picked)
+
+
+async def search(topic: str, limit: int = 3) -> list[Article]:
+    """Ищет свежие статьи по теме через Bing News RSS (для /find). Не трогает таблицу seen."""
+    q = quote_plus(f"{topic} Chiefs" if "chiefs" not in topic.lower() else topic)
+    async with httpx.AsyncClient(headers={"User-Agent": UA}) as client:
+        raw = await _get(client, SEARCH_FEED.format(q=q))
+        if not raw:
+            return []
+        found: list[Article] = []
+        for e in feedparser.parse(raw).entries[:limit]:
+            url, title = _real_url(getattr(e, "link", None) or ""), getattr(e, "title", "").strip()
+            if not url or not title:
+                continue
+            summary = re.sub(r"<[^>]+>", " ", getattr(e, "summary", "") or "").strip()
+            found.append(Article(title=title, url=url, source="Bing News", summary=summary[:1000]))
+        return list(await asyncio.gather(*(enrich(client, a) for a in found)))

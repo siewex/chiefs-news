@@ -1,7 +1,7 @@
 import os
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(override=True)  # .env главнее системных переменных
 
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 ADMIN_IDS = {int(x) for x in os.environ["ADMIN_IDS"].replace(" ", "").split(",") if x}
@@ -10,14 +10,20 @@ CHECK_INTERVAL_MIN = int(os.getenv("CHECK_INTERVAL_MIN", "60"))
 MAX_POSTS_PER_RUN = int(os.getenv("MAX_POSTS_PER_RUN", "5"))
 ADD_SOURCE_LINK = os.getenv("ADD_SOURCE_LINK", "1") == "1"
 
-MODEL = "claude-opus-5"
+# Сторонний API (OpenAI-совместимый)
+API_BASE_URL = os.getenv("API_BASE_URL", "https://ai.starimg.ru/v1")
+API_KEY = os.environ["API_KEY"]
+MODEL = os.getenv("MODEL", "claude-opus-4-8")
+
 DB_PATH = os.getenv("DB_PATH", "data/bot.db")
 STYLE_PATH = os.getenv("STYLE_PATH", "style.md")
+
+# Поиск по теме для /find (Bing News RSS; Google News отдаёт редиректы, которые не раскрыть без JS)
+SEARCH_FEED = "https://www.bing.com/news/search?q={q}&format=rss&mkt=en-US&setlang=en-US"
 
 # RSS-источники по Chiefs. Порядок = приоритет при дедупликации.
 FEEDS = [
     ("Arrowhead Pride", "https://www.arrowheadpride.com/rss/index.xml"),
-    ("Google News", "https://news.google.com/rss/search?q=%22Kansas+City+Chiefs%22&hl=en-US&gl=US&ceid=US:en"),
-    ("Bing News", "https://www.bing.com/news/search?q=%22Kansas+City+Chiefs%22&format=rss"),
+    ("Bing News", "https://www.bing.com/news/search?q=%22Kansas+City+Chiefs%22&format=rss&mkt=en-US&setlang=en-US"),
     ("ESPN NFL", "https://www.espn.com/espn/rss/nfl/news"),
 ]

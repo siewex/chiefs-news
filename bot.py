@@ -161,13 +161,15 @@ async def cmd_find(m: Message, command: CommandObject):
     topic = (command.args or "").strip() or "Kansas City Chiefs latest news"
     await m.answer(f"Ищу: <i>{html.escape(topic)}</i>…")
     try:
-        text = await writer.search_and_write(topic)
+        articles = await news.search(topic)
+        if not articles:
+            return await m.answer("Ничего не нашёл.")
+        text = await writer.write_from_search(topic, articles)
     except Exception as e:
         log.exception("find failed")
         return await m.answer(f"Ошибка: {html.escape(str(e))}")
-    if not text:
-        return await m.answer("Ничего не нашёл.")
-    draft_id = storage.save_draft(text, None, None, topic, None)
+    source_text = "\n\n".join(a.text or a.summary for a in articles)
+    draft_id = storage.save_draft(text, None, None, topic, source_text)
     await deliver_draft(m.chat.id, draft_id)
 
 
