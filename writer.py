@@ -52,6 +52,28 @@ def _clean_html(post: str) -> str:
     return post.strip()
 
 
+def _latin_words(post: str) -> list[str]:
+    """Латинские слова в видимом тексте поста (ссылки и теги не считаем)."""
+    visible = re.sub(r"<a\s+href=\"[^\"]*\">Источник</a>", "", post)
+    visible = re.sub(r"<[^>]+>", "", visible)
+    return re.findall(r"[A-Za-z]{2,}", visible)
+
+
+async def no_latin(post: str) -> str:
+    """Если в посте осталась латиница — один раз просим переписать."""
+    words = _latin_words(post)
+    if not words:
+        return post
+    log.info("latin in post, fixing: %s", words[:8])
+    user = (
+        f"В этом посте есть латиница: {', '.join(dict.fromkeys(words))}. "
+        "Перепиши его ПОЛНОСТЬЮ кириллицей по правилам стиля (имена — транскрипцией, команды — в «ёлочках», "
+        "термины — русские), ничего больше не меняя. Ответь ТОЛЬКО текстом поста в Telegram HTML.\n\n" + post
+    )
+    fixed = _clean_html(await ask(user))
+    return fixed if fixed else post
+
+
 async def draft_from_article(a: Article) -> Draft:
     body = a.text or a.summary or "(текста нет, только заголовок)"
     if a.kind == "tweet":
@@ -80,6 +102,8 @@ async def draft_from_article(a: Article) -> Draft:
     raw = await ask(user)
     d = Draft.model_validate(_parse_json(raw))
     d.post_html = _clean_html(d.post_html)
+    if d.relevant and d.post_html:
+        d.post_html = await no_latin(d.post_html)
     return d
 
 
@@ -91,7 +115,7 @@ async def rewrite(post_html: str, instruction: str, source_text: str | None = No
         "Сохрани стиль канала и факты. Ответь ТОЛЬКО текстом поста в Telegram HTML, без пояснений и без ```."
         + ctx
     )
-    return _clean_html(await ask(user))
+    return await no_latin(_clean_html(await ask(user)))
 
 
 async def write_on_topic(topic: str) -> str:
@@ -100,7 +124,7 @@ async def write_on_topic(topic: str) -> str:
         "Используй только общеизвестные факты, ничего не выдумывай — если данных не хватает, "
         "сделай пост мнением/рассуждением. Ответь ТОЛЬКО текстом поста в Telegram HTML, без пояснений и без ```."
     )
-    return _clean_html(await ask(user))
+    return await no_latin(_clean_html(await ask(user)))
 
 
 async def write_from_search(topic: str, articles: list[Article]) -> str:
@@ -116,4 +140,4 @@ async def write_from_search(topic: str, articles: list[Article]) -> str:
         + (' В конце поста добавь строку: <a href="ССЫЛКА">Источник</a> с реальной ссылкой на выбранную статью.' if ADD_SOURCE_LINK else "")
         + " Ответь ТОЛЬКО текстом поста в Telegram HTML, без пояснений и без ```."
     )
-    return _clean_html(await ask(user, max_tokens=6000))
+    return await no_latin(_clean_html(await ask(user, max_tokens=6000)))
