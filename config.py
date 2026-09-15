@@ -8,6 +8,9 @@ ADMIN_IDS = {int(x) for x in os.environ["ADMIN_IDS"].replace(" ", "").split(",")
 CHANNEL_ID = os.environ["CHANNEL_ID"]
 CHECK_INTERVAL_MIN = int(os.getenv("CHECK_INTERVAL_MIN", "60"))
 MAX_POSTS_PER_RUN = int(os.getenv("MAX_POSTS_PER_RUN", "5"))
+# Быстрые источники (репосты твитов): как часто и сколько за раз
+FAST_INTERVAL_MIN = int(os.getenv("FAST_INTERVAL_MIN", "10"))
+FAST_MAX_PER_RUN = int(os.getenv("FAST_MAX_PER_RUN", "5"))
 ADD_SOURCE_LINK = os.getenv("ADD_SOURCE_LINK", "1") == "1"
 
 # Сторонний API (OpenAI-совместимый)
@@ -27,3 +30,16 @@ FEEDS = [
     ("Bing News", "https://www.bing.com/news/search?q=%22Kansas+City+Chiefs%22&format=rss&mkt=en-US&setlang=en-US"),
     ("ESPN NFL", "https://www.espn.com/espn/rss/nfl/news"),
 ]
+
+# Быстрые источники — куда за минуты репостят твиты инсайдеров.
+# Reddit: берём только посты с пометкой источника в заголовке вида "[Schefter] ...".
+REDDIT_FEEDS = [
+    ("r/KansasCityChiefs", "https://www.reddit.com/r/KansasCityChiefs/new/.rss", False),
+    ("r/nfl", "https://www.reddit.com/r/nfl/new/.rss", True),  # True = фильтровать по ключевым словам
+]
+# Bluesky-аккаунты (открытый API, ключ не нужен)
+BLUESKY_ACCOUNTS = [
+    "chiefs.bsky.social",
+]
+# Ключевые слова для общих лент (r/nfl): пост берём, если в заголовке есть хоть одно
+KEYWORDS = ["chiefs", "mahomes", "kelce", "andy reid", "kansas city", "veach", "arrowhead", "spagnuolo"]

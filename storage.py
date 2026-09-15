@@ -87,6 +87,15 @@ def draft_by_admin_msg(chat_id: int, msg_id: int) -> dict | None:
         return dict(row) if row else None
 
 
+def recent_titles(hours: int = 36, limit: int = 30) -> list[str]:
+    """Заголовки источников недавних черновиков — чтобы модель не дублировала уже освещённое."""
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT DISTINCT source_title FROM drafts WHERE created_at > ? AND source_title IS NOT NULL "
+            "ORDER BY created_at DESC LIMIT ?", (time.time() - hours * 3600, limit)).fetchall()
+        return [r[0] for r in rows]
+
+
 def mark_published(draft_id: int) -> None:
     with _conn() as c:
         c.execute("UPDATE drafts SET published = 1 WHERE id = ?", (draft_id,))

@@ -15,7 +15,7 @@ import news
 import storage
 import writer
 from config import (ADMIN_IDS, BOT_TOKEN, CHANNEL_ID, CHECK_INTERVAL_MIN,
-                    MAX_POSTS_PER_RUN)
+                    FAST_INTERVAL_MIN, FAST_MAX_PER_RUN, MAX_POSTS_PER_RUN)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("bot")
@@ -29,10 +29,12 @@ router.callback_query.filter(F.from_user.id.in_(ADMIN_IDS))
 dp.include_router(router)
 
 fetch_lock = asyncio.Lock()
+fast_lock = asyncio.Lock()
 
 HELP = (
     "<b>Чифс-бот</b> — помощник по постам.\n\n"
-    f"Каждые {CHECK_INTERVAL_MIN} мин я проверяю новости о Chiefs и присылаю готовые черновики.\n\n"
+    f"Каждые {CHECK_INTERVAL_MIN} мин я проверяю статьи о Chiefs, каждые {FAST_INTERVAL_MIN} мин — "
+    "репосты твитов инсайдеров (Reddit, Bluesky), и присылаю готовые черновики.\n\n"
     "Команды:\n"
     "/news — проверить новости прямо сейчас\n"
     "/find тема — найти в интернете и написать пост\n"
@@ -90,11 +92,31 @@ async def deliver_draft(chat_id: int, draft_id: int, note: str | None = None) ->
 
 # ---------- проверка новостей ----------
 
+async def _make_drafts(articles, notify_chat_ids: set[int], icon: str) -> int:
+    made = 0
+    for a in articles:
+        try:
+            draft = await writer.draft_from_article(a)
+        except Exception:
+            log.exception("draft failed for %s", a.url)
+            continue
+        if not draft.relevant or not draft.post_html.strip():
+            log.info("skip %s: %s", a.title, draft.reason)
+            continue
+        draft_id = storage.save_draft(draft.post_html, a.image_url, a.url, a.title, a.text)
+        note = f"{icon} <i>{html.escape(a.source)}: {html.escape(draft.reason)}</i>"
+        for cid in notify_chat_ids:
+            await deliver_draft(cid, draft_id, note=note)
+        made += 1
+    return made
+
+
 async def check_news(notify_chat_ids: set[int], manual: bool = False) -> None:
+    """Статьи из RSS (медленный контур)."""
     if fetch_lock.locked():
         if manual:
             for cid in notify_chat_ids:
-                await bot.send_message(cid, "Уже проверяю, подождите…")
+                await bot.send_message(cid, "Уже проверяю статьи, подождите…")
         return
     async with fetch_lock:
         try:
@@ -103,29 +125,33 @@ async def check_news(notify_chat_ids: set[int], manual: bool = False) -> None:
             log.exception("fetch_new failed")
             return
         log.info("new articles: %d", len(articles))
-        if not articles and manual:
+        made = await _make_drafts(articles, notify_chat_ids, "📰")
+        if manual:
             for cid in notify_chat_ids:
-                await bot.send_message(cid, "Новых новостей нет.")
-            return
+                if not articles:
+                    await bot.send_message(cid, "Статьи: новых нет.")
+                elif made == 0:
+                    await bot.send_message(cid, f"Статьи: просмотрел {len(articles)} новых, ничего стоящего.")
 
-        made = 0
-        for a in articles:
-            try:
-                draft = await writer.draft_from_article(a)
-            except Exception:
-                log.exception("draft failed for %s", a.url)
-                continue
-            if not draft.relevant or not draft.post_html.strip():
-                log.info("skip %s: %s", a.title, draft.reason)
-                continue
-            draft_id = storage.save_draft(draft.post_html, a.image_url, a.url, a.title, a.text)
-            note = f"📰 <i>{html.escape(a.source)}: {html.escape(draft.reason)}</i>"
+
+async def check_fast(notify_chat_ids: set[int], manual: bool = False) -> None:
+    """Репосты твитов из Reddit/Bluesky (быстрый контур)."""
+    if fast_lock.locked():
+        return
+    async with fast_lock:
+        try:
+            items = await news.fetch_fast(FAST_MAX_PER_RUN)
+        except Exception:
+            log.exception("fetch_fast failed")
+            return
+        log.info("new fast items: %d", len(items))
+        made = await _make_drafts(items, notify_chat_ids, "⚡")
+        if manual:
             for cid in notify_chat_ids:
-                await deliver_draft(cid, draft_id, note=note)
-            made += 1
-        if manual and made == 0 and articles:
-            for cid in notify_chat_ids:
-                await bot.send_message(cid, f"Просмотрел {len(articles)} новых, ничего стоящего для канала.")
+                if not items:
+                    await bot.send_message(cid, "Твиты: новых нет.")
+                elif made == 0:
+                    await bot.send_message(cid, f"Твиты: просмотрел {len(items)} новых, ничего стоящего.")
 
 
 async def scheduler() -> None:
@@ -136,6 +162,16 @@ async def scheduler() -> None:
         except Exception:
             log.exception("scheduler tick failed")
         await asyncio.sleep(CHECK_INTERVAL_MIN * 60)
+
+
+async def fast_scheduler() -> None:
+    await asyncio.sleep(20)
+    while True:
+        try:
+            await check_fast(ADMIN_IDS)
+        except Exception:
+            log.exception("fast scheduler tick failed")
+        await asyncio.sleep(FAST_INTERVAL_MIN * 60)
 
 
 # ---------- команды ----------
@@ -152,7 +188,8 @@ async def cmd_style(m: Message):
 
 @router.message(Command("news"))
 async def cmd_news(m: Message):
-    await m.answer("Проверяю новости…")
+    await m.answer("Проверяю твиты и статьи…")
+    asyncio.create_task(check_fast({m.chat.id}, manual=True))
     asyncio.create_task(check_news({m.chat.id}, manual=True))
 
 
@@ -283,6 +320,7 @@ async def on_text(m: Message):
 async def main():
     storage.init()
     asyncio.create_task(scheduler())
+    asyncio.create_task(fast_scheduler())
     log.info("bot started; admins=%s channel=%s", ADMIN_IDS, CHANNEL_ID)
     await dp.start_polling(bot)
 

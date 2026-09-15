@@ -7,6 +7,7 @@ from pathlib import Path
 from openai import AsyncOpenAI
 from pydantic import BaseModel
 
+import storage
 from config import ADD_SOURCE_LINK, API_BASE_URL, API_KEY, MODEL, STYLE_PATH
 from news import Article
 
@@ -53,14 +54,26 @@ def _clean_html(post: str) -> str:
 
 async def draft_from_article(a: Article) -> Draft:
     body = a.text or a.summary or "(текста нет, только заголовок)"
+    if a.kind == "tweet":
+        head = (f"Это короткая новость (твит/репост). Источник: {a.source}\nТекст: {a.title}\n"
+                + (f"Комментарий/контекст: {a.summary}\n" if a.summary and a.summary != a.title else "")
+                + f"Ссылка: {a.url}\n\n"
+                "Если это новость — напиши КОРОТКИЙ пост (200–500 символов): заголовок + 1–2 абзаца, "
+                "без домыслов сверх того, что есть в твите. ")
+    else:
+        head = (f"Источник: {a.source}\nЗаголовок: {a.title}\nСсылка: {a.url}\n\n"
+                f"Текст статьи:\n{body}\n\n")
+    covered = storage.recent_titles()
+    covered_block = ("\n\nУже освещали за последние сутки (если это та же новость без новых фактов — relevant=false):\n- "
+                     + "\n- ".join(covered)) if covered else ""
     user = (
-        f"Источник: {a.source}\nЗаголовок: {a.title}\nСсылка: {a.url}\n\n"
-        f"Текст статьи:\n{body}\n\n"
+        head +
         "Оцени, интересна ли эта новость подписчикам канала про Kansas City Chiefs "
         "(новости о других командах — только если напрямую касаются Чифс: матч, обмен, соперник в плей-офф). "
-        "Реклама, ставки, кликбейт без сути, повторы старых новостей — не интересны. "
+        "Реклама, ставки, кликбейт без сути, повторы старых новостей, фанатские эмоции без фактов — не интересны. "
         "Если интересна — напиши пост по правилам стиля."
         + (f' В конце поста добавь строку: <a href="{a.url}">Источник</a>' if ADD_SOURCE_LINK else "")
+        + covered_block
         + "\n\nОтветь СТРОГО одним JSON-объектом без пояснений и без markdown:\n"
         '{"relevant": true|false, "reason": "одна строка почему", "post_html": "текст поста в Telegram HTML или пустая строка"}'
     )
