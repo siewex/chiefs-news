@@ -8,27 +8,33 @@ from openai import AsyncOpenAI
 from pydantic import BaseModel
 
 import storage
-from config import ADD_SOURCE_LINK, API_BASE_URL, API_KEY, MODEL, STYLE_PATH
+from config import ADD_SOURCE_LINK, API_BASE_URL, API_KEY, FILTER_MODEL, MODEL, STYLE_PATH
 from news import Article
 
 log = logging.getLogger(__name__)
 client = AsyncOpenAI(api_key=API_KEY, base_url=API_BASE_URL)
+# Текущие модели; можно переключать на лету командой /model (до перезапуска)
+current = {"model": MODEL, "filter": FILTER_MODEL}
 
 
 def style() -> str:
     return Path(STYLE_PATH).read_text(encoding="utf-8")
 
 
-async def ask(user: str, max_tokens: int = 4000) -> str:
-    """Один запрос к модели, возвращает текст ответа."""
+async def ask(user: str, max_tokens: int = 4000, model: str | None = None, system: str | None = None) -> str:
+    """Один запрос к модели, возвращает текст ответа. По умолчанию — со стилем канала."""
+    model = model or current["model"]
     resp = await client.chat.completions.create(
-        model=MODEL,
+        model=model,
         max_tokens=max_tokens,
         messages=[
-            {"role": "system", "content": style()},
+            {"role": "system", "content": style() if system is None else system},
             {"role": "user", "content": user},
         ],
     )
+    usage = getattr(resp, "usage", None)
+    if usage:
+        log.info("%s: %s in / %s out", model, usage.prompt_tokens, usage.completion_tokens)
     return (resp.choices[0].message.content or "").strip()
 
 
@@ -74,37 +80,59 @@ async def no_latin(post: str) -> str:
     return fixed if fixed else post
 
 
+FILTER_SYSTEM = (
+    "Ты отбираешь новости для русскоязычного Telegram-канала о клубе НФЛ «Канзас-Сити Чифс». "
+    "Отвечай только JSON."
+)
+
+
+async def is_relevant(a: Article) -> tuple[bool, str]:
+    """Этап 1 (дешёвая модель): стоит ли вообще писать пост по этой новости."""
+    snippet = (a.text or a.summary or "")[:1000]
+    covered = storage.recent_titles()
+    covered_block = ("\nУже освещали за последние сутки:\n- " + "\n- ".join(covered)) if covered else ""
+    user = (
+        f"Источник: {a.source}\nЗаголовок: {a.title}\n"
+        + (f"Текст: {snippet}\n" if snippet and snippet != a.title else "")
+        + covered_block +
+        "\n\nИнтересна ли новость подписчикам канала про «Чифс»? Да — если это новость о команде, игроках, "
+        "тренерах, матчах, травмах, обменах, контрактах, драфте или о соперниках, когда это напрямую касается «Чифс». "
+        "Нет — реклама, ставки и прогнозы, кликбейт без сути, фанатские эмоции без фактов, мемы, "
+        "новости про другие команды без связи с «Чифс», а также то, что уже освещали (если нет новых фактов).\n"
+        'Ответь СТРОГО JSON: {"relevant": true|false, "reason": "одна короткая строка"}'
+    )
+    raw = await ask(user, max_tokens=200, model=current["filter"], system=FILTER_SYSTEM)
+    try:
+        data = _parse_json(raw)
+        return bool(data.get("relevant")), str(data.get("reason", ""))[:200]
+    except Exception:
+        log.warning("filter returned garbage, passing through: %s", raw[:120])
+        return True, "фильтр не распарсился"
+
+
 async def draft_from_article(a: Article) -> Draft:
+    relevant, reason = await is_relevant(a)
+    if not relevant:
+        return Draft(relevant=False, reason=reason, post_html="")
+
+    # Этап 2 (основная модель): пишем пост
     body = a.text or a.summary or "(текста нет, только заголовок)"
     if a.kind == "tweet":
         head = (f"Это короткая новость (твит/репост). Источник: {a.source}\nТекст: {a.title}\n"
                 + (f"Комментарий/контекст: {a.summary}\n" if a.summary and a.summary != a.title else "")
                 + f"Ссылка: {a.url}\n\n"
-                "Если это новость — напиши КОРОТКИЙ пост (200–500 символов): заголовок + 1–2 абзаца, "
+                "Напиши КОРОТКИЙ пост (200–500 символов): заголовок + 1–2 абзаца, "
                 "без домыслов сверх того, что есть в твите. ")
     else:
         head = (f"Источник: {a.source}\nЗаголовок: {a.title}\nСсылка: {a.url}\n\n"
                 f"Текст статьи:\n{body}\n\n")
-    covered = storage.recent_titles()
-    covered_block = ("\n\nУже освещали за последние сутки (если это та же новость без новых фактов — relevant=false):\n- "
-                     + "\n- ".join(covered)) if covered else ""
     user = (
-        head +
-        "Оцени, интересна ли эта новость подписчикам канала про Kansas City Chiefs "
-        "(новости о других командах — только если напрямую касаются Чифс: матч, обмен, соперник в плей-офф). "
-        "Реклама, ставки, кликбейт без сути, повторы старых новостей, фанатские эмоции без фактов — не интересны. "
-        "Если интересна — напиши пост по правилам стиля."
+        head + "Напиши пост по правилам стиля. Не выдумывай факты, которых нет в источнике."
         + (f' В конце поста добавь строку: <a href="{a.url}">Источник</a>' if ADD_SOURCE_LINK else "")
-        + covered_block
-        + "\n\nОтветь СТРОГО одним JSON-объектом без пояснений и без markdown:\n"
-        '{"relevant": true|false, "reason": "одна строка почему", "post_html": "текст поста в Telegram HTML или пустая строка"}'
+        + " Ответь ТОЛЬКО текстом поста в Telegram HTML, без пояснений и без ```."
     )
-    raw = await ask(user)
-    d = Draft.model_validate(_parse_json(raw))
-    d.post_html = _clean_html(d.post_html)
-    if d.relevant and d.post_html:
-        d.post_html = await no_latin(d.post_html)
-    return d
+    post = await no_latin(_clean_html(await ask(user)))
+    return Draft(relevant=bool(post), reason=reason, post_html=post)
 
 
 async def rewrite(post_html: str, instruction: str, source_text: str | None = None) -> str:

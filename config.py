@@ -16,7 +16,9 @@ ADD_SOURCE_LINK = os.getenv("ADD_SOURCE_LINK", "1") == "1"
 # Сторонний API (OpenAI-совместимый)
 API_BASE_URL = os.getenv("API_BASE_URL", "https://ai.starimg.ru/v1")
 API_KEY = os.environ["API_KEY"]
-MODEL = os.getenv("MODEL", "claude-opus-4-8")
+MODEL = os.getenv("MODEL", "claude-sonnet-5")                 # пишет посты
+FILTER_MODEL = os.getenv("FILTER_MODEL", "claude-haiku-4-5")  # решает, интересна ли новость (дёшево)
+ARTICLE_MAX_CHARS = int(os.getenv("ARTICLE_MAX_CHARS", "4000"))  # сколько текста статьи отдавать модели
 
 DB_PATH = os.getenv("DB_PATH", "data/bot.db")
 STYLE_PATH = os.getenv("STYLE_PATH", "style.md")

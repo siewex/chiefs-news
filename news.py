@@ -12,7 +12,7 @@ from html import unescape as html_unescape
 
 from urllib.parse import parse_qs, quote_plus, urlparse
 
-from config import BLUESKY_ACCOUNTS, FEEDS, KEYWORDS, REDDIT_FEEDS, SEARCH_FEED
+from config import ARTICLE_MAX_CHARS, BLUESKY_ACCOUNTS, FEEDS, KEYWORDS, REDDIT_FEEDS, SEARCH_FEED
 import storage
 
 log = logging.getLogger(__name__)
@@ -65,7 +65,7 @@ async def enrich(client: httpx.AsyncClient, a: Article) -> Article:
     if not html:
         return a
     text = trafilatura.extract(html, include_comments=False, include_tables=False) or ""
-    a.text = text[:6000]
+    a.text = text[:ARTICLE_MAX_CHARS]
     a.image_url = _og_image(html)
     return a
 

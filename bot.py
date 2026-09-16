@@ -39,7 +39,8 @@ HELP = (
     "/news — проверить новости прямо сейчас\n"
     "/find тема — найти в интернете и написать пост\n"
     "/post тема — написать пост на свою тему (без поиска)\n"
-    "/style — показать текущий стиль канала\n\n"
+    "/style — показать текущий стиль канала\n"
+    "/model — какая модель пишет; /model имя — переключить (до перезапуска)\n\n"
     "Под каждым черновиком есть кнопки. Чтобы переписать по-своему — "
     "<b>ответьте</b> на сообщение с черновиком текстом, что поменять."
 )
@@ -184,6 +185,18 @@ async def cmd_start(m: Message):
 @router.message(Command("style"))
 async def cmd_style(m: Message):
     await m.answer(f"<pre>{html.escape(writer.style())}</pre>")
+
+
+@router.message(Command("model"))
+async def cmd_model(m: Message, command: CommandObject):
+    arg = (command.args or "").strip()
+    if arg:
+        writer.current["model"] = arg
+    await m.answer(
+        f"Пишет посты: <code>{html.escape(writer.current['model'])}</code>\n"
+        f"Фильтрует новости: <code>{html.escape(writer.current['filter'])}</code>\n\n"
+        "Сменить: /model claude-opus-4-8 — действует до перезапуска, постоянно — в .env (MODEL=...)"
+    )
 
 
 @router.message(Command("news"))
