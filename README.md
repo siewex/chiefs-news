@@ -67,11 +67,26 @@ pip install -r requirements.txt && python bot.py
 | `MAX_POSTS_PER_RUN` | максимум черновиков за одну проверку (5) |
 | `FAST_INTERVAL_MIN` | как часто проверять Reddit/Bluesky (10). Меньше 5 не ставьте — Reddit начнёт отдавать 429 |
 | `FAST_MAX_PER_RUN` | максимум черновиков из твитов за раз (5) |
+| `FEED_CACHE_SEC` | на сколько секунд кэшировать ленты, чтобы Reddit не отдавал 429 (240) |
+| `REDDIT_CLIENT_ID` / `REDDIT_CLIENT_SECRET` | ключи приложения Reddit, см. ниже |
 | `ADD_SOURCE_LINK` | добавлять ссылку «Источник» в конец поста (1/0) |
 
-Источники — в `config.py`: `FEEDS` (статьи), `REDDIT_FEEDS`, `BLUESKY_ACCOUNTS`, `KEYWORDS` (фильтр для r/nfl).
+Источники — в `config.py`: `FEEDS` (статьи), `REDDIT_SUBS`, `BLUESKY_ACCOUNTS`, `KEYWORDS` (фильтр для r/nfl).
 Из Reddit берутся только посты с пометкой источника в заголовке — `[Schefter] ...`, `[Chiefs] ...` — так там
 помечают репосты твитов; обсуждения и мемы отсекаются.
+
+### Ключи Reddit (нужны на сервере)
+
+Публичный RSS Reddit почти всегда отвечает `429 Too Many Requests`, если запрос идёт с адреса хостинга.
+Бесплатное приложение снимает это ограничение (100 запросов в минуту):
+
+1. Откройте https://www.reddit.com/prefs/apps → **create another app**
+2. Тип — **script**, redirect uri — `http://localhost`, название любое
+3. `client_id` — короткая строка под названием приложения, `client_secret` — поле **secret**
+4. Впишите их в `.env` как `REDDIT_CLIENT_ID` и `REDDIT_CLIENT_SECRET`, перезапустите бота
+
+В логе при старте появится `Reddit: токен приложения получен`. Если ключей нет, бот работает через RSS —
+на домашнем компьютере обычно нормально, на VPS большинство запросов будет теряться.
 
 ## Модели и расход
 

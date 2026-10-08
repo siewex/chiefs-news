@@ -4,7 +4,7 @@ import logging
 import re
 from pathlib import Path
 
-from openai import AsyncOpenAI
+from openai import APIConnectionError, APIStatusError, AsyncOpenAI
 from pydantic import BaseModel
 
 import storage
@@ -15,6 +15,7 @@ log = logging.getLogger(__name__)
 client = AsyncOpenAI(api_key=API_KEY, base_url=API_BASE_URL)
 # Текущие модели; можно переключать на лету командой /model (до перезапуска)
 current = {"model": MODEL, "filter": FILTER_MODEL}
+log.info("API: %s | модель: %s | фильтр: %s", API_BASE_URL, MODEL, FILTER_MODEL)
 
 
 def style() -> str:
@@ -24,14 +25,25 @@ def style() -> str:
 async def ask(user: str, max_tokens: int = 4000, model: str | None = None, system: str | None = None) -> str:
     """Один запрос к модели, возвращает текст ответа. По умолчанию — со стилем канала."""
     model = model or current["model"]
-    resp = await client.chat.completions.create(
-        model=model,
-        max_tokens=max_tokens,
-        messages=[
-            {"role": "system", "content": style() if system is None else system},
-            {"role": "user", "content": user},
-        ],
-    )
+    try:
+        resp = await client.chat.completions.create(
+            model=model,
+            max_tokens=max_tokens,
+            messages=[
+                {"role": "system", "content": style() if system is None else system},
+                {"role": "user", "content": user},
+            ],
+        )
+    except APIConnectionError as e:
+        raise RuntimeError(
+            f"не могу подключиться к API ({API_BASE_URL}). Проверьте API_BASE_URL в .env "
+            f"(нужен полный адрес с https:// и, как правило, с /v1 на конце). Детали: {e}"
+        ) from e
+    except APIStatusError as e:
+        raise RuntimeError(
+            f"API ответил ошибкой {e.status_code} на модель «{model}». "
+            "Проверьте API_KEY и название модели (/model). Детали: " + str(e.message or e)[:200]
+        ) from e
     usage = getattr(resp, "usage", None)
     if usage:
         log.info("%s: %s in / %s out", model, usage.prompt_tokens, usage.completion_tokens)

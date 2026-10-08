@@ -14,7 +14,17 @@ FAST_MAX_PER_RUN = int(os.getenv("FAST_MAX_PER_RUN", "5"))
 ADD_SOURCE_LINK = os.getenv("ADD_SOURCE_LINK", "1") == "1"
 
 # Сторонний API (OpenAI-совместимый)
-API_BASE_URL = os.getenv("API_BASE_URL", "https://ai.starimg.ru/v1")
+def _normalize_base_url(raw: str) -> str:
+    """Адрес API: дописываем https://, убираем лишний слеш в конце."""
+    url = (raw or "").strip().rstrip("/")
+    if not url:
+        raise SystemExit("API_BASE_URL пустой — укажите адрес API в .env")
+    if not url.startswith(("http://", "https://")):
+        url = "https://" + url
+    return url
+
+
+API_BASE_URL = _normalize_base_url(os.getenv("API_BASE_URL", "https://ai.starimg.ru/v1"))
 API_KEY = os.environ["API_KEY"]
 MODEL = os.getenv("MODEL", "claude-sonnet-5")                 # пишет посты
 FILTER_MODEL = os.getenv("FILTER_MODEL", "claude-haiku-4-5")  # решает, интересна ли новость (дёшево)
@@ -35,10 +45,17 @@ FEEDS = [
 
 # Быстрые источники — куда за минуты репостят твиты инсайдеров.
 # Reddit: берём только посты с пометкой источника в заголовке вида "[Schefter] ...".
-REDDIT_FEEDS = [
-    ("r/KansasCityChiefs", "https://www.reddit.com/r/KansasCityChiefs/new/.rss", False),
-    ("r/nfl", "https://www.reddit.com/r/nfl/new/.rss", True),  # True = фильтровать по ключевым словам
+# (подпись в черновике, сабреддит, фильтровать ли по ключевым словам)
+REDDIT_SUBS = [
+    ("r/KansasCityChiefs", "KansasCityChiefs", False),
+    ("r/nfl", "nfl", True),
 ]
+# Приложение Reddit (https://www.reddit.com/prefs/apps → create app → type: script).
+# Если заполнено — работаем через их API (100 запросов в минуту, стабильно).
+# Если пусто — через публичный RSS, который часто отдаёт 429 с серверных адресов.
+REDDIT_CLIENT_ID = os.getenv("REDDIT_CLIENT_ID", "")
+REDDIT_CLIENT_SECRET = os.getenv("REDDIT_CLIENT_SECRET", "")
+REDDIT_USER_AGENT = os.getenv("REDDIT_USER_AGENT", "python:chiefs-tg-bot:1.1 (news digest)")
 # Bluesky-аккаунты (открытый API, ключ не нужен)
 BLUESKY_ACCOUNTS = [
     "chiefs.bsky.social",

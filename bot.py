@@ -202,8 +202,12 @@ async def cmd_model(m: Message, command: CommandObject):
 @router.message(Command("news"))
 async def cmd_news(m: Message):
     await m.answer("Проверяю твиты и статьи…")
-    asyncio.create_task(check_fast({m.chat.id}, manual=True))
-    asyncio.create_task(check_news({m.chat.id}, manual=True))
+
+    async def both():
+        await check_fast({m.chat.id}, manual=True)
+        await check_news({m.chat.id}, manual=True)
+
+    asyncio.create_task(both())
 
 
 @router.message(Command("find"))
