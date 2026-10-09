@@ -1,6 +1,7 @@
 # Чифс-бот — ИИ-помощник для постов канала о Kansas City Chiefs
 
-Бот сам следит за новостями о Chiefs — статьи (Arrowhead Pride, Bing News, ESPN) и быстрые
+Бот сам следит за новостями о Chiefs — статьи (Arrowhead Pride, Chiefs.com, Arrowhead Addict,
+ProFootballTalk, CBS Sports, ESPN, Bing) и быстрые
 репосты твитов инсайдеров (Reddit r/KansasCityChiefs и r/nfl, Bluesky @chiefs) —
 пишет по ним посты на русском в стиле канала и присылает вам в личку черновики с кнопками.
 Вы нажимаете «Опубликовать» — пост уходит в канал.
@@ -71,7 +72,10 @@ pip install -r requirements.txt && python bot.py
 | `REDDIT_CLIENT_ID` / `REDDIT_CLIENT_SECRET` | ключи приложения Reddit, см. ниже |
 | `ADD_SOURCE_LINK` | добавлять ссылку «Источник» в конец поста (1/0) |
 
-Источники — в `config.py`: `FEEDS` (статьи), `REDDIT_SUBS`, `BLUESKY_ACCOUNTS`, `KEYWORDS` (фильтр для r/nfl).
+Источники — в `config.py`: `FEEDS` (статьи), `REDDIT_SUBS`, `BLUESKY_ACCOUNTS`, `KEYWORDS`.
+У каждой ленты третий параметр — фильтровать ли по ключевым словам до обращения к модели.
+Для общих лент НФЛ (ESPN, CBS, PFT, Bing, r/nfl) он `True`: новости о других командах отбрасываются
+бесплатно, не занимая лимит и не тратя токены. Для профильных лент о «Чифс» — `False`.
 Из Reddit берутся только посты с пометкой источника в заголовке — `[Schefter] ...`, `[Chiefs] ...` — так там
 помечают репосты твитов; обсуждения и мемы отсекаются.
 

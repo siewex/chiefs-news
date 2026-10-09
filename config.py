@@ -36,11 +36,18 @@ STYLE_PATH = os.getenv("STYLE_PATH", "style.md")
 # Поиск по теме для /find (Bing News RSS; Google News отдаёт редиректы, которые не раскрыть без JS)
 SEARCH_FEED = "https://www.bing.com/news/search?q={q}&format=rss&mkt=en-US&setlang=en-US"
 
-# RSS-источники по Chiefs. Порядок = приоритет при дедупликации.
+# RSS-источники: (подпись, адрес, фильтровать ли по ключевым словам до обращения к модели).
+# True нужен общим лентам НФЛ — иначе новости о других командах занимают лимит и жгут токены.
 FEEDS = [
-    ("Arrowhead Pride", "https://www.arrowheadpride.com/rss/index.xml"),
-    ("Bing News", "https://www.bing.com/news/search?q=%22Kansas+City+Chiefs%22&format=rss&mkt=en-US&setlang=en-US"),
-    ("ESPN NFL", "https://www.espn.com/espn/rss/nfl/news"),
+    ("Arrowhead Pride", "https://www.arrowheadpride.com/rss/index.xml", False),
+    ("Chiefs.com", "https://www.chiefs.com/rss/news", False),
+    ("Arrowhead Addict", "https://arrowheadaddict.com/feed/", False),
+    ("ProFootballTalk", "https://profootballtalk.nbcsports.com/feed/", True),
+    ("CBS Sports NFL", "https://www.cbssports.com/rss/headlines/nfl/", True),
+    ("ESPN NFL", "https://www.espn.com/espn/rss/nfl/news", True),
+    # Бинг оставлен последним: он ведёт на msn.com/yahoo, откуда текст статьи почти
+    # никогда не извлекается — модель видит один заголовок. Нужен как подстраховка.
+    ("Bing News", "https://www.bing.com/news/search?q=%22Kansas+City+Chiefs%22&format=rss&mkt=en-US&setlang=en-US", True),
 ]
 
 # Быстрые источники — куда за минуты репостят твиты инсайдеров.
@@ -60,5 +67,6 @@ REDDIT_USER_AGENT = os.getenv("REDDIT_USER_AGENT", "python:chiefs-tg-bot:1.1 (ne
 BLUESKY_ACCOUNTS = [
     "chiefs.bsky.social",
 ]
-# Ключевые слова для общих лент (r/nfl): пост берём, если в заголовке есть хоть одно
-KEYWORDS = ["chiefs", "mahomes", "kelce", "andy reid", "kansas city", "veach", "arrowhead", "spagnuolo"]
+# Ключевые слова для общих лент (ESPN, Bing, r/nfl): берём, только если есть хоть одно
+KEYWORDS = ["chiefs", "mahomes", "kelce", "andy reid", "kansas city", "veach", "arrowhead", "spagnuolo",
+            "butker", "pacheco", "worthy", "mcduffie", "bolton", "humphrey", "karlaftis", "rice"]

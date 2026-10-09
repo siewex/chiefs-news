@@ -102,6 +102,11 @@ async def enrich(client: httpx.AsyncClient, a: Article) -> Article:
     return a
 
 
+def _has_keyword(text: str) -> bool:
+    t = text.lower()
+    return any(k in t for k in KEYWORDS)
+
+
 async def fetch_new(limit: int) -> list[Article]:
     """Возвращает до `limit` новых (ещё не виденных) статей, обогащённых текстом."""
     found: list[Article] = []
@@ -109,7 +114,7 @@ async def fetch_new(limit: int) -> list[Article]:
     first_run = storage.seen_count() == 0
 
     async with httpx.AsyncClient(headers={"User-Agent": UA}) as client:
-        for source, feed_url in FEEDS:
+        for source, feed_url, need_kw in FEEDS:
             raw = await _get(client, feed_url, cache=True)
             if not raw:
                 continue
@@ -118,6 +123,9 @@ async def fetch_new(limit: int) -> list[Article]:
                 url = _real_url(getattr(e, "link", None) or "")
                 title = getattr(e, "title", "").strip()
                 if not url or not title or url in seen_urls or storage.is_seen(url):
+                    continue
+                if need_kw and not _has_keyword(title + " " + (getattr(e, "summary", "") or "")):
+                    storage.mark_seen(url)  # чужая команда — больше не возвращаемся к ней
                     continue
                 published = getattr(e, "published_parsed", None)
                 if published and time.time() - time.mktime(published) > MAX_AGE_SEC:
@@ -165,11 +173,6 @@ async def search(topic: str, limit: int = 3) -> list[Article]:
 # ---------- быстрые источники: репосты твитов ----------
 
 _TAG_RE = re.compile(r"^\s*\[([^\]]{2,40})\]\s*:?\s*(.+)$", re.S)
-
-
-def _has_keyword(text: str) -> bool:
-    t = text.lower()
-    return any(k in t for k in KEYWORDS)
 
 
 _SKIP_TAGS = {"oc", "meme", "highlight", "discussion", "question", "serious", "fan art", "art", "shitpost", "poll"}
