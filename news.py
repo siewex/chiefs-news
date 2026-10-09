@@ -15,7 +15,8 @@ from html import unescape as html_unescape
 from urllib.parse import parse_qs, quote_plus, urlparse
 
 from config import (ARTICLE_MAX_CHARS, BLUESKY_ACCOUNTS, FEEDS, KEYWORDS, REDDIT_CLIENT_ID,
-                    REDDIT_CLIENT_SECRET, REDDIT_SUBS, REDDIT_USER_AGENT, SEARCH_FEED)
+                    REDDIT_CLIENT_SECRET, REDDIT_SUBS, REDDIT_USER_AGENT, SEARCH_FEED,
+                    TITLE_BLOCKLIST)
 import storage
 
 log = logging.getLogger(__name__)
@@ -39,7 +40,10 @@ class Article:
 # Кэш лент: Reddit ругается 429, если дёргать его чаще, чем раз в несколько минут.
 # Плановая проверка и ручная /news часто идут подряд — отдаём им один и тот же ответ.
 FEED_CACHE_SEC = int(os.getenv("FEED_CACHE_SEC", "240"))
+# Лента, упёршаяся в 429, отправляется в отдых: нет смысла долбить её каждые 10 минут
+RATE_LIMIT_COOLDOWN_SEC = int(os.getenv("RATE_LIMIT_COOLDOWN_SEC", "1800"))
 _feed_cache: dict[str, tuple[float, str]] = {}
+_cooldown: dict[str, float] = {}
 
 
 async def _get(client: httpx.AsyncClient, url: str, headers: dict | None = None,
@@ -50,14 +54,24 @@ async def _get(client: httpx.AsyncClient, url: str, headers: dict | None = None,
             log.debug("feed from cache: %s", url)
             return hit[1]
 
+    until = _cooldown.get(url, 0)
+    if until > time.time():
+        log.info("%s на паузе из-за 429 ещё %.0f мин", url, (until - time.time()) / 60)
+        return _feed_cache.get(url, (0, None))[1]
+
     for attempt in range(retries + 1):
         try:
             r = await client.get(url, follow_redirects=True, timeout=20, headers=headers)
-            if r.status_code == 429 and attempt < retries:
-                delay = float(r.headers.get("retry-after") or 0) or 3 * (attempt + 1)
-                log.info("429 от %s, повтор через %.0f с", url, delay)
-                await asyncio.sleep(min(delay, 15))
-                continue
+            if r.status_code == 429:
+                if attempt < retries:
+                    delay = float(r.headers.get("retry-after") or 0) or 3 * (attempt + 1)
+                    log.info("429 от %s, повтор через %.0f с", url, delay)
+                    await asyncio.sleep(min(delay, 15))
+                    continue
+                _cooldown[url] = time.time() + RATE_LIMIT_COOLDOWN_SEC
+                log.warning("%s отвечает 429 — пропускаю её %.0f мин",
+                            url, RATE_LIMIT_COOLDOWN_SEC / 60)
+                return _feed_cache.get(url, (0, None))[1]
             r.raise_for_status()
             if cache:
                 _feed_cache[url] = (time.time(), r.text)
@@ -107,6 +121,12 @@ def _has_keyword(text: str) -> bool:
     return any(k in t for k in KEYWORDS)
 
 
+def _is_junk(title: str) -> bool:
+    """Клубное промо и конкурсы — не новость, незачем тратить на них модель."""
+    t = title.lower()
+    return any(b in t for b in TITLE_BLOCKLIST)
+
+
 async def fetch_new(limit: int) -> list[Article]:
     """Возвращает до `limit` новых (ещё не виденных) статей, обогащённых текстом."""
     found: list[Article] = []
@@ -126,6 +146,10 @@ async def fetch_new(limit: int) -> list[Article]:
                     continue
                 if need_kw and not _has_keyword(title + " " + (getattr(e, "summary", "") or "")):
                     storage.mark_seen(url)  # чужая команда — больше не возвращаемся к ней
+                    continue
+                if _is_junk(title):
+                    storage.mark_seen(url)
+                    log.info("промо, пропускаю: %s", title[:70])
                     continue
                 published = getattr(e, "published_parsed", None)
                 if published and time.time() - time.mktime(published) > MAX_AGE_SEC:
@@ -200,7 +224,7 @@ def _reddit_tag(title: str, need_keyword: bool) -> tuple[str, str] | None:
     if not m:
         return None  # обсуждения, мемы, вопросы — без пометки источника
     tag, headline = m.group(1).strip(), m.group(2).strip()
-    if tag.lower() in _SKIP_TAGS:
+    if tag.lower() in _SKIP_TAGS or _is_junk(headline):
         return None
     if need_keyword and not _has_keyword(title):
         return None
@@ -337,7 +361,9 @@ async def fetch_fast(limit: int) -> list[Article]:
     found: list[Article] = []
     first_run = storage.seen_count() == 0
     async with httpx.AsyncClient(headers={"User-Agent": UA}) as client:
-        for source, sub, need_kw in REDDIT_SUBS:
+        for i, (source, sub, need_kw) in enumerate(REDDIT_SUBS):
+            if i:
+                await asyncio.sleep(2)  # Reddit не любит запросы подряд
             found += await _reddit_fetch(client, source, sub, need_kw)
         for handle in BLUESKY_ACCOUNTS:
             found += await _bluesky_items(client, handle)

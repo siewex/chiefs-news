@@ -67,6 +67,15 @@ REDDIT_USER_AGENT = os.getenv("REDDIT_USER_AGENT", "python:chiefs-tg-bot:1.1 (ne
 BLUESKY_ACCOUNTS = [
     "chiefs.bsky.social",
 ]
+# Заголовки-пустышки: клубные промо, конкурсы, реклама партнёров. Отсекаются бесплатно,
+# до обращения к модели (на chiefs.com таких половина ленты).
+TITLE_BLOCKLIST = [
+    "coach of the week", "presented by", "player of the week presented",
+    "sweepstakes", "giveaway", "ticket giveaway", "season tickets",
+    "flag football", "high school", "youth football", "cheerleader",
+    "photo gallery", "wallpaper", "podcast episode", "watch party",
+]
+
 # Ключевые слова для общих лент (ESPN, Bing, r/nfl): берём, только если есть хоть одно
 KEYWORDS = ["chiefs", "mahomes", "kelce", "andy reid", "kansas city", "veach", "arrowhead", "spagnuolo",
             "butker", "pacheco", "worthy", "mcduffie", "bolton", "humphrey", "karlaftis", "rice"]

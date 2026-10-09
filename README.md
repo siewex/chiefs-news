@@ -69,6 +69,7 @@ pip install -r requirements.txt && python bot.py
 | `FAST_INTERVAL_MIN` | как часто проверять Reddit/Bluesky (10). Меньше 5 не ставьте — Reddit начнёт отдавать 429 |
 | `FAST_MAX_PER_RUN` | максимум черновиков из твитов за раз (5) |
 | `FEED_CACHE_SEC` | на сколько секунд кэшировать ленты, чтобы Reddit не отдавал 429 (240) |
+| `RATE_LIMIT_COOLDOWN_SEC` | на сколько отложить ленту, упёршуюся в 429 (1800 = 30 мин) |
 | `REDDIT_CLIENT_ID` / `REDDIT_CLIENT_SECRET` | ключи приложения Reddit, см. ниже |
 | `ADD_SOURCE_LINK` | добавлять ссылку «Источник» в конец поста (1/0) |
 
